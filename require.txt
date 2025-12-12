@@ -2,3 +2,4 @@ python-dotenv
 ccxt
 pandas
 python-telegram-bot>=20,<22
+requests

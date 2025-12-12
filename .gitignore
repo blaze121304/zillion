@@ -1,0 +1,56 @@
+# created by virtualenv automatically
+# -------------------------
+# 파이썬 기본
+# -------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 가상환경
+venv/
+.env/
+.venv/
+env/
+ENV/
+
+# 패키지/빌드 산출물
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 테스트/툴 캐시
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 로그/임시파일
+*.log
+*.tmp
+*.swp
+*.swo
+
+# 환경변수 파일 (API 키)
+.env
+
+# sqlite DB (실거래/백테스트 결과)
+trading.db
+*.db
+
+# 로컬에서만 쓰는 설정들
+config_local.py
+
+# -------------------------
+# IDE / 에디터 관련
+# -------------------------
+# PyCharm / IntelliJ
+.idea/
+
+# OS별 잡파일
+.DS_Store
+Thumbs.db

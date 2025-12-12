@@ -53,7 +53,18 @@ def run_strategy(bot_app):
                     print(f"\n🔥 [매수 신호] RSI {curr_rsi:.1f}")
 
                     client.buy_market(config.TICKER, config.BUY_AMOUNT_KRW)
-                    db.log_trade(config.TICKER, 'buy', curr_price, (config.BUY_AMOUNT_KRW / curr_price))
+
+                    # 로그 인입
+                    amount = config.BUY_AMOUNT_KRW / curr_price
+                    db.log_trade(
+                        ticker=config.TICKER,
+                        action="buy",
+                        price=curr_price,
+                        amount=amount,
+                        profit_rate=0.0,
+                        pnl=0.0,
+                        mode="RSI",
+                    )
 
                     # 텔레그램 알림에도 잔액 표시
                     send_msg(bot_app,
@@ -73,7 +84,20 @@ def run_strategy(bot_app):
                     print(f"\n💰 [익절 신호] 수익률 {profit_rate:.2f}%")
 
                     client.sell_market(config.TICKER, my_amt)
-                    db.log_trade(config.TICKER, 'sell', curr_price, my_amt, profit_rate)
+
+                    # 로그 인입
+                    realized_pnl = (curr_price - my_avg) * my_amt  # 원 단위
+
+                    db.log_trade(
+                        ticker=config.TICKER,
+                        action="sell",
+                        price=curr_price,
+                        amount=my_amt,
+                        profit_rate=profit_rate,
+                        pnl=realized_pnl,
+                        mode="RSI",
+                    )
+                    
 
                     msg = f"🎉 [익절 완료] 수익률: +{profit_rate:.2f}%\n실현손익: {int((curr_price - my_avg) * my_amt):,}원"
                     send_msg(bot_app, msg)

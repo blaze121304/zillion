@@ -53,6 +53,18 @@ async def profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode='Markdown')
 #endregion
 
+#region 리포트
+async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    report = db.generate_daily_report()  # 오늘자
+    msg = (
+        f"📊 {report['date']} 데일리 리포트\n"
+        f"총 트레이드: {report['total_trades']}건\n"
+        f"승률: {report['win_rate']:.1f}%\n"
+        f"총 손익: {report['total_pnl']:+,.0f}원\n"
+    )
+    await update.message.reply_text(msg)
+#endregion
+
 #region 메인 실행부
 if __name__ == "__main__":
     # 1. DB 초기화
@@ -70,6 +82,7 @@ if __name__ == "__main__":
     # 핸들러 정의 (start/profit)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("profit", profit))
+    application.add_handler(CommandHandler("report", report))
 
     # 3. 전략 루프를 별도 쓰레드로 실행
     trade_thread = threading.Thread(

@@ -130,7 +130,16 @@ def run_strategy(bot_app):
                 if my_amt > 0:
                     client.sell_market(config.TICKER, my_amt)
                     realized_pnl = (curr_price - my_avg) * my_amt
-                    db.log_trade(config.TICKER, "sell", curr_price, my_amt, daily_return)  # 일단 수익률 기록
+                    #db.log_trade(config.TICKER, "sell", curr_price, my_amt, daily_return)  # 일단 수익률 기록 - 수정
+                    db.log_trade(
+                        ticker=config.TICKER,
+                        action="sell",
+                        price=curr_price,
+                        amount=my_amt,
+                        profit_rate=daily_return,
+                        pnl=realized_pnl,
+                        mode=config.STRATEGY_MODE,
+                    )
 
                     msg = (
                         f"⛔ [데일리 손실 손절]\n"
@@ -154,7 +163,16 @@ def run_strategy(bot_app):
                 if my_amt > 0:
                     client.sell_market(config.TICKER, my_amt)
                     realized_pnl = (curr_price - my_avg) * my_amt
-                    db.log_trade(config.TICKER, "sell", curr_price, my_amt, daily_return)
+                    #db.log_trade(config.TICKER, "sell", curr_price, my_amt, daily_return) - 수정
+                    db.log_trade(
+                        ticker=config.TICKER,
+                        action="sell",
+                        price=curr_price,
+                        amount=my_amt,
+                        profit_rate=daily_return,
+                        pnl=realized_pnl,
+                        mode=config.STRATEGY_MODE,
+                    )
 
                     msg = (
                         f"✅ [데일리 목표 수익 청산]\n"
@@ -177,7 +195,8 @@ def run_strategy(bot_app):
 
             if config.USE_MARKET_FILTER:
             # !!마켓 필터!!
-                market_filter(bot_app, last_market_check, market_off)
+                #market_filter(bot_app, last_market_check, market_off)
+                market_off, last_market_check = market_filter(bot_app, last_market_check, market_off) #수정
             else:
                 # 필터 OFF 상태면 항상 시장 ON 상태로 간주
                 market_off = False

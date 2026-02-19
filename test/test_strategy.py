@@ -22,6 +22,11 @@
     python -m test.test_strategy
 """
 
+from src import strategy
+from src import config
+from src import upbit_client as client
+from src import database as db
+
 import time
 import datetime
 import pandas as pd

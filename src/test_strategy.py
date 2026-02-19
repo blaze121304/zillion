@@ -26,6 +26,12 @@ import time
 import datetime
 import pandas as pd
 
+from src import strategy
+from src import config
+from src import upbit_client as client
+from src import database as db
+
+
 # ---------------------------------------
 # 0. 공통 Mock (텔레그램 / DB / 주문)
 # ---------------------------------------

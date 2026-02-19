@@ -17,12 +17,12 @@ import database as db
 # --------------------------
 #region 시작
 async def start(update: Update, _context: CallbackContext):
-    await update.message.reply_text("🤖 삐리삐리 돈 많이벌자 삐리삐리 /profit /report /chat 명령어를 쓸수있어 삐리삐리 ")
+    await update.message.reply_text("🤖 /profit /report /chat 명령어를 사용할 수 있습니다. ")
 #endregion
 
 #region 소개
 async def chat(update: Update, _context: CallbackContext):
-    await update.message.reply_text("🤖 삐리삐리 나는 돈버는 로보트야 지우야 💰💰💰")
+    await update.message.reply_text("🤖 코인 자동 매매 봇 💰💰💰")
 #endregion
 
 #region 현재가 정보
@@ -41,7 +41,7 @@ async def profit(update: Update, _context: CallbackContext):
     if amt == 0:
         msg = (
             f"📊 *{config.TICKER} 현황*\n"
-            f"보유 코인이 없다.. 삐리삐리\n"
+            f"보유 코인이 없습니다. \n"
             f"💰 보유 원화: {krw:,.0f} 원"
         )
         await update.message.reply_text(msg, parse_mode='Markdown')

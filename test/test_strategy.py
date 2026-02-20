@@ -21,11 +21,14 @@
     cd zillion
     python -m test.test_strategy
 """
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from src import strategy
-from src import config
-from src import upbit_client as client
-from src import database as db
+import strategy
+import config
+import upbit_client as client
+import database as db
 
 import time
 import datetime
@@ -94,7 +97,7 @@ client.get_krw_balance = mock_get_krw_balance
 
 def make_box_breakout_df(
     base_price: float,
-    n: int = 20,
+    n: int = 40,
     breakout_gap: float = 10.0,
     timeframe_sec: int = 60,
     volume_base: float = 100.0,
@@ -149,7 +152,7 @@ def make_pullback_5m_df() -> pd.DataFrame:
     timeframe_sec = 300
 
     rows = []
-    N = 20
+    N = 35
 
     # 박스 구간
     for i in range(N):
@@ -205,7 +208,10 @@ def make_swing_1h_df() -> pd.DataFrame:
     price = 100.0
     for i in range(60):
         ts = now_ms + i * timeframe_sec * 1000
-        price += 0.5  # 서서히 우상향
+        if i < 50:
+            price += 0.5
+        else:
+            price -= 0.3  # 마지막 10개는 하락 → EMA20 근처로 되돌림
         rows.append([
             ts,
             price - 3,
@@ -214,6 +220,49 @@ def make_swing_1h_df() -> pd.DataFrame:
             price,
             100.0 + i,  # 조금씩 늘어나는 거래량
         ])
+
+    df = pd.DataFrame(
+        rows,
+        columns=["timestamp", "open", "high", "low", "close", "volume"],
+    )
+    return df
+
+def make_turtle_df() -> pd.DataFrame:
+    """
+    터틀 전략 테스트용 가짜 1시간봉 데이터
+    - 앞 25개: 박스 구간 (고점 = 100)
+    - 마지막 1개: 20봉 고점 돌파 (close = 115)
+    - ATR이 계산될 수 있도록 변동폭 부여
+    """
+    now_ms = int(time.time()) * 1000
+    timeframe_sec = 3600
+    rows = []
+
+    base_price = 100.0
+
+    # 박스 구간 25개
+    for i in range(25):
+        ts = now_ms + i * timeframe_sec * 1000
+        rows.append([
+            ts,
+            base_price - 3,   # open
+            base_price,       # high  ← 고점 고정
+            base_price - 8,   # low   ← 변동폭 부여 (ATR 계산용)
+            base_price - 1,   # close
+            100.0,            # volume
+        ])
+
+    # 돌파 캔들 1개
+    breakout_price = base_price + 15  # 115원
+    ts = now_ms + 25 * timeframe_sec * 1000
+    rows.append([
+        ts,
+        base_price + 2,
+        breakout_price,
+        base_price,
+        breakout_price,
+        200.0,  # 거래량 증가
+    ])
 
     df = pd.DataFrame(
         rows,
@@ -349,6 +398,87 @@ def test_swing_1h_v1_buy():
         my_krw=my_krw,
     )
 
+def test_turtle_v1_buy():
+    print("\n=== [TEST] TURTLE_V1 매수 테스트 ===")
+    config.STRATEGY_MODE = "TURTLE_V1"
+
+    df_1h = make_turtle_df()
+
+    def mock_get_ohlcv_turtle(ticker: str, interval: str):
+        if interval == "1h":
+            return df_1h
+        return pd.DataFrame()
+
+    client.get_ohlcv = mock_get_ohlcv_turtle
+
+    # 총자산 = 원화 100만원 (mock_get_krw_balance 기준)
+    # 보유 코인 없음 (mock_get_balance 기준 0)
+    curr_price = df_1h["close"].iloc[-1]   # 115원
+    curr_rsi   = 55.0
+    my_krw     = 1_000_000.0
+
+    strategy.purchase_buy(
+        bot_app=None,
+        curr_price=curr_price,
+        curr_rsi=curr_rsi,
+        my_krw=my_krw,
+    )
+
+
+def test_turtle_v1_stop_loss():
+    print("\n=== [TEST] TURTLE_V1 손절 테스트 ===")
+    config.STRATEGY_MODE = "TURTLE_V1"
+
+    df_1h = make_turtle_df()
+
+    def mock_get_ohlcv_turtle(ticker: str, interval: str):
+        if interval == "1h":
+            return df_1h
+        return pd.DataFrame()
+
+    client.get_ohlcv = mock_get_ohlcv_turtle
+
+    my_avg = 115.0   # 진입가
+    my_amt = 50.0    # 보유 수량
+
+    # ATR ≈ 8 → 손절가 ≈ 115 - (2 * 8) = 99
+    # 현재가를 손절가 아래로 설정
+    curr_price = 95.0
+
+    strategy._turtle_exit(
+        bot_app=None,
+        curr_price=curr_price,
+        my_amt=my_amt,
+        my_avg=my_avg,
+    )
+
+
+def test_turtle_v1_take_profit():
+    print("\n=== [TEST] TURTLE_V1 익절 테스트 ===")
+    config.STRATEGY_MODE = "TURTLE_V1"
+
+    df_1h = make_turtle_df()
+
+    def mock_get_ohlcv_turtle(ticker: str, interval: str):
+        if interval == "1h":
+            return df_1h
+        return pd.DataFrame()
+
+    client.get_ohlcv = mock_get_ohlcv_turtle
+
+    my_avg = 80.0   # 진입가
+    my_amt = 50.0    # 보유 수량
+
+    # 10봉 최저가 = 약 92 (박스low - 8)
+    # 현재가를 10봉 최저가 아래로 설정 → 익절 트리거
+    curr_price = 91.0
+
+    strategy._turtle_exit(
+        bot_app=None,
+        curr_price=curr_price,
+        my_amt=my_amt,
+        my_avg=my_avg,
+    )
 
 # ---------------------------------------
 # 3. 손절 / 익절 테스트
@@ -395,13 +525,18 @@ if __name__ == "__main__":
     print(f"현재 시간: {datetime.datetime.now()}")
 
     # 각 전략 매수 테스트
-    test_rsi_v1_buy()
-    test_breakout_5m_v1_buy()
-    test_breakout_1m_v1_buy()
-    test_pullback_5m_v1_buy()
-    test_swing_1h_v1_buy()
+    # test_rsi_v1_buy()
+    # test_breakout_5m_v1_buy()
+    # test_breakout_1m_v1_buy()
+    # test_pullback_5m_v1_buy()
+    # test_swing_1h_v1_buy()
 
     # 손절/익절 테스트
-    test_take_profit_and_stop_loss()
+    # test_take_profit_and_stop_loss()
+
+    test_turtle_v1_buy()
+    test_turtle_v1_stop_loss()
+    test_turtle_v1_take_profit()
+
 
     print("\n===== 전략 테스트 종료 =====")

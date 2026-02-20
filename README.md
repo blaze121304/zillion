@@ -27,3 +27,6 @@ pip install -r require.txt
 
 # 추가 Lib 설치시
 pip installs something > pip freeze > require.txt
+
+# test 실행시
+python -m test.test_strategy

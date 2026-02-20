@@ -11,6 +11,11 @@ last_entry_ts: float = 0.0
 # 진입 후 최고가 추적 (트레일링 스탑용)
 entry_highest_price: float = 0.0
 
+# 피라미딩 관련 전역 변수
+turtle_units: int         = 0      # 현재 보유 유닛 수
+turtle_next_add: float    = 0.0    # 다음 추가 진입 기준가
+turtle_entry_atr: float   = 0.0    # 최초 진입 시 ATR (유닛 사이즈 고정용)
+
 def calculate_rsi(df, period=14):
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
@@ -36,17 +41,18 @@ def get_turtle_stop_price(entry_price: float, atr: float) -> float:
     """터틀 손절가 = 진입가 - 2 * ATR"""
     return entry_price - 2 * atr
 
-def calc_turtle_unit_size(total_equity: float, atr: float) -> float:
+def calc_turtle_unit_size(total_equity: float, atr: float, curr_price: float) -> float:
     """
     터틀 유닛 사이즈 계산
-    1유닛 = (총자산 * 리스크율) / (2 * ATR)
-    반환값: 매수할 KRW 금액
+    unit_krw = (총자산 × 1%) / (2 × ATR) × 현재가
+    → ATR이 너무 작을 때 폭발 방지용 최대 20% 캡 적용
     """
     if atr <= 0:
         return 0.0
-    risk_krw = total_equity * (config.TURTLE_RISK_RATE / 100)
-    unit_krw  = risk_krw / (2 * atr) * 1  # ATR 단위가 가격이므로 KRW 환산
-    return unit_krw
+    risk_krw     = total_equity * (config.TURTLE_RISK_RATE / 100)
+    unit_krw     = risk_krw / (2 * atr) * curr_price
+    max_unit_krw = total_equity * 0.20
+    return min(unit_krw, max_unit_krw)
 
 def send_msg(bot_app, text: str):
     """
@@ -406,7 +412,6 @@ def purchase_buy(bot_app, curr_price: float, curr_rsi: float, my_krw: float):
         if df_1h.empty or len(df_1h) < config.TURTLE_ENTRY_PERIOD + 5:
             return
 
-        # ATR 계산
         df_1h['atr'] = calculate_atr(df_1h, config.TURTLE_ATR_PERIOD)
         atr = df_1h['atr'].iloc[-1]
         if atr <= 0 or pd.isna(atr):
@@ -414,29 +419,26 @@ def purchase_buy(bot_app, curr_price: float, curr_rsi: float, my_krw: float):
 
         # 20봉 최고가 (현재 캔들 제외)
         entry_high = df_1h['high'].iloc[-(config.TURTLE_ENTRY_PERIOD + 1):-1].max()
-
-        # 유닛 사이즈 계산 (총자산 기반)
-        total_equity = my_krw + (client.get_balance(config.TICKER)[1] * curr_price)
-        unit_krw = calc_turtle_unit_size(total_equity, atr)
-
-        if unit_krw <= 0 or unit_krw > my_krw:
-            return
-
-        # 직전 봉 종가 조회
-        # → 직전 봉이 20봉 고점 아래에 있었을 때만 진입
-        # → 이미 며칠 전에 돌파한 신호는 무시 (고점 물림 방지)
         prev_close = df_1h['close'].iloc[-2]
-        if curr_price > entry_high and prev_close <= entry_high:
-            stop_price = get_turtle_stop_price(curr_price, atr)
 
-            print(
-                f"\n🐢 [터틀 진입 신호] "
-                f"현재가 {curr_price:,.0f} > 20봉고점 {entry_high:,.0f} | "
-                f"ATR {atr:,.1f} | 손절가 {stop_price:,.0f} | 매수금액 {unit_krw:,.0f}원"
-            )
+        # 총자산 계산
+        total_equity = my_krw + (client.get_balance(config.TICKER)[1] * curr_price)
 
-            # 매수 실행
-            global last_entry_ts
+        global last_entry_ts, entry_highest_price
+        global turtle_units, turtle_next_add, turtle_entry_atr
+
+        # ── 신규 진입 (유닛 0인 상태) ──
+        if turtle_units == 0:
+            # 이번 봉에서 처음 돌파한 경우만 진입
+            if not (prev_close <= entry_high < curr_price):
+                return
+
+            unit_krw = calc_turtle_unit_size(total_equity, atr, curr_price)
+            if unit_krw < 5_000:
+                unit_krw = 5_000
+            if unit_krw > my_krw:
+                return
+
             client.buy_market(config.TICKER, unit_krw)
             amount = unit_krw / curr_price
             db.log_trade(
@@ -448,16 +450,75 @@ def purchase_buy(bot_app, curr_price: float, curr_rsi: float, my_krw: float):
                 pnl=0.0,
                 mode=config.STRATEGY_MODE,
             )
+
+            # 피라미딩 상태 초기화
+            turtle_units = 1
+            turtle_entry_atr = atr  # 최초 ATR 고정
+            turtle_next_add = curr_price + 0.5 * atr  # 다음 추가 진입 기준가
+            entry_highest_price = curr_price
             last_entry_ts = time.time()
 
+            stop_price = curr_price - 2 * atr
+            print(
+                f"\n🐢 [터틀 1유닛 진입] "
+                f"가격: {curr_price:,.0f} | ATR: {atr:,.1f} | "
+                f"손절가: {stop_price:,.0f} | 매수금액: {unit_krw:,.0f}원 | "
+                f"다음추가: {turtle_next_add:,.0f}"
+            )
             send_msg(
                 bot_app,
-                f"🐢 [터틀 매수 체결]\n"
+                f"🐢 [터틀 1유닛 진입]\n"
                 f"가격: {curr_price:,.0f}원\n"
-                f"20봉 고점: {entry_high:,.0f}원\n"
                 f"ATR: {atr:,.1f}\n"
                 f"손절가: {stop_price:,.0f}원\n"
-                f"매수금액: {unit_krw:,.0f}원",
+                f"매수금액: {unit_krw:,.0f}원\n"
+                f"다음 추가진입: {turtle_next_add:,.0f}원",
+            )
+
+        # ── 피라미딩 추가 진입 (유닛 1~3인 상태) ──
+        elif 0 < turtle_units < config.TURTLE_MAX_UNITS:
+            # 다음 추가 기준가 돌파 시 추가 진입
+            if curr_price < turtle_next_add:
+                return
+
+            # 최초 ATR 기준으로 유닛 사이즈 고정
+            unit_krw = calc_turtle_unit_size(total_equity, turtle_entry_atr)
+            if unit_krw < 5_000:
+                unit_krw = 5_000
+            if unit_krw > my_krw:
+                return
+
+            client.buy_market(config.TICKER, unit_krw)
+            amount = unit_krw / curr_price
+            db.log_trade(
+                ticker=config.TICKER,
+                action="buy",
+                price=curr_price,
+                amount=amount,
+                profit_rate=0.0,
+                pnl=0.0,
+                mode=config.STRATEGY_MODE,
+            )
+
+            turtle_units += 1
+            turtle_next_add = curr_price + 0.5 * turtle_entry_atr  # 다음 추가 기준가 갱신
+            last_entry_ts = time.time()
+
+            stop_price = entry_highest_price - 2 * turtle_entry_atr
+            print(
+                f"\n🐢 [터틀 {turtle_units}유닛 추가] "
+                f"가격: {curr_price:,.0f} | "
+                f"매수금액: {unit_krw:,.0f}원 | "
+                f"다음추가: {turtle_next_add:,.0f} | "
+                f"현재손절가: {stop_price:,.0f}"
+            )
+            send_msg(
+                bot_app,
+                f"🐢 [터틀 {turtle_units}유닛 추가]\n"
+                f"가격: {curr_price:,.0f}원\n"
+                f"매수금액: {unit_krw:,.0f}원\n"
+                f"다음 추가진입: {turtle_next_add:,.0f}원\n"
+                f"현재 손절가: {stop_price:,.0f}원",
             )
     else:
         print(f"\n⚠️ 알 수 없는 STRATEGY_MODE: {config.STRATEGY_MODE}")
@@ -535,6 +596,12 @@ def _turtle_exit(bot_app, curr_price, my_amt, my_avg):
 
         # 최고가 초기화
         entry_highest_price = 0.0
+
+        # 피라미딩 상태 초기화
+        turtle_units = 0
+        turtle_next_add = 0.0
+        turtle_entry_atr = 0.0
+
         time.sleep(10)
 
 def loss_cut_take_profit(bot_app, curr_price, my_amt, my_avg):

@@ -62,3 +62,5 @@ MARKET_FILTER_CHECK_INTERVAL = 60
 ENTRY_START_HOUR = 0
 ENTRY_END_HOUR   = 23
 
+# ✅ 쿨다운 시간 - 1시간봉 기준 1봉 대기
+REENTRY_COOLDOWN_SEC = 86400 # 최소 24시간 (1일) 정도는 쉬어야 연속 손절 막을수 있음

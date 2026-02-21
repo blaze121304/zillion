@@ -378,21 +378,140 @@ def print_result(result: dict):
 
 
 # ============================================================
-# 5. 실행
+# 6. 그리드 서치 (파라미터 최적화)
+# ============================================================
+
+def run_grid_search(df_raw: pd.DataFrame, initial_capital: float = 3_000_000.0):
+    """
+    파라미터 조합을 자동 순회하며 최적 조합 탐색
+    - 각 조합마다 백테스트 실행 후 성과 비교
+    - 최종적으로 수익률 기준 상위 10개 출력
+    """
+
+    # ── 탐색할 파라미터 범위 정의 ──
+    param_grid = {
+        "TURTLE_ENTRY_PERIOD" : [10, 15, 20, 25, 30],
+        "TURTLE_ATR_PERIOD"   : [10, 14, 20],
+        "TURTLE_RISK_RATE"    : [0.5, 1.0, 1.5, 2.0],
+        "TURTLE_MAX_UNITS"    : [1, 2, 3, 4],
+        "REENTRY_COOLDOWN_SEC": [43200, 86400, 172800, 259200],  # 12h, 24h, 48h, 72h
+    }
+
+    # 전체 조합 수 계산
+    total = 1
+    for v in param_grid.values():
+        total *= len(v)
+    print(f"\n🔍 그리드 서치 시작 | 총 {total}개 조합\n")
+
+    results = []
+    count   = 0
+
+    # ── 파라미터 조합 순회 ──
+    for entry_period in param_grid["TURTLE_ENTRY_PERIOD"]:
+        for atr_period in param_grid["TURTLE_ATR_PERIOD"]:
+            for risk_rate in param_grid["TURTLE_RISK_RATE"]:
+                for max_units in param_grid["TURTLE_MAX_UNITS"]:
+                    for cooldown in param_grid["REENTRY_COOLDOWN_SEC"]:
+                        count += 1
+
+                        # config 파라미터 임시 변경
+                        # → 각 조합마다 config 값을 덮어써서 백테스트에 반영
+                        config.TURTLE_ENTRY_PERIOD  = entry_period
+                        config.TURTLE_ATR_PERIOD    = atr_period
+                        config.TURTLE_RISK_RATE     = risk_rate
+                        config.TURTLE_MAX_UNITS     = max_units
+                        config.REENTRY_COOLDOWN_SEC = cooldown
+
+                        # 지표 재계산 (ENTRY_PERIOD, ATR_PERIOD가 바뀌므로 필수)
+                        df = prepare_indicators(df_raw)
+
+                        # 백테스트 실행
+                        result = run_backtest(df, initial_capital=initial_capital)
+                        s      = result['stats']
+
+                        # 진행 상황 출력
+                        print(
+                            f"\r[{count:>4}/{total}] "
+                            f"EP={entry_period:>2} ATR={atr_period:>2} "
+                            f"RISK={risk_rate:.1f} UNIT={max_units} "
+                            f"CD={cooldown//3600:>2}h | "
+                            f"수익률={s['total_return']:>+7.2f}% "
+                            f"PF={s['profit_factor']:>5.2f} "
+                            f"MDD={s['mdd']:>+6.2f}%",
+                            end=""
+                        )
+
+                        results.append({
+                            "entry_period" : entry_period,
+                            "atr_period"   : atr_period,
+                            "risk_rate"    : risk_rate,
+                            "max_units"    : max_units,
+                            "cooldown_h"   : cooldown // 3600,
+                            "total_return" : s['total_return'],
+                            "win_rate"     : s['win_rate'],
+                            "profit_factor": s['profit_factor'],
+                            "mdd"          : s['mdd'],
+                            "total_trades" : s['total_trades'],
+                            "total_pnl"    : s['total_pnl'],
+                        })
+
+    print(f"\n\n✅ 그리드 서치 완료 | {total}개 조합 탐색")
+
+    # ── 결과 정렬 및 상위 출력 ──
+    # 정렬 기준: 수익률 내림차순 (같으면 MDD 오름차순)
+    results.sort(key=lambda x: (-x['total_return'], x['mdd']))
+
+    print("\n" + "=" * 80)
+    print("🏆 TOP 10 파라미터 조합 (수익률 기준)")
+    print("=" * 80)
+    print(
+        f"{'순위':>4} | {'EP':>4} {'ATR':>4} {'RISK':>5} {'UNIT':>5} {'CD':>4} | "
+        f"{'수익률':>8} {'승률':>7} {'PF':>6} {'MDD':>8} {'트레이드':>7}"
+    )
+    print("-" * 80)
+
+    for rank, r in enumerate(results[:10], 1):
+        print(
+            f"{rank:>4} | "
+            f"{r['entry_period']:>4} {r['atr_period']:>4} "
+            f"{r['risk_rate']:>5.1f} {r['max_units']:>5} {r['cooldown_h']:>3}h | "
+            f"{r['total_return']:>+8.2f}% "
+            f"{r['win_rate']:>6.1f}% "
+            f"{r['profit_factor']:>6.2f} "
+            f"{r['mdd']:>+8.2f}% "
+            f"{r['total_trades']:>7}건"
+        )
+
+    print("=" * 80)
+
+    # 1위 조합을 config에 반영
+    best = results[0]
+    print(f"\n✅ 최적 파라미터 (1위 기준):")
+    print(f"   TURTLE_ENTRY_PERIOD  = {best['entry_period']}")
+    print(f"   TURTLE_ATR_PERIOD    = {best['atr_period']}")
+    print(f"   TURTLE_RISK_RATE     = {best['risk_rate']}")
+    print(f"   TURTLE_MAX_UNITS     = {best['max_units']}")
+    print(f"   REENTRY_COOLDOWN_SEC = {best['cooldown_h'] * 3600}  # {best['cooldown_h']}h")
+
+    return results
+
+
+# ============================================================
+# 7. 실행
 # ============================================================
 
 if __name__ == "__main__":
-    # 1. 데이터 수집
+    # 1. 데이터 수집 (그리드 서치 전 한 번만 수집)
     df_raw = fetch_ohlcv_full(
         ticker    = config.TICKER,
         timeframe = "1h",
     )
 
-    # 2. 지표 계산
-    df = prepare_indicators(df_raw)
+    # 2. 그리드 서치 실행
+    # → 단일 백테스트가 필요하면 아래 주석 해제 후 그리드 서치 주석 처리
+    run_grid_search(df_raw, initial_capital=3_000_000.0)
 
-    # 3. 백테스트 실행
-    result = run_backtest(df, initial_capital=3_000_000.0)
-
-    # 4. 결과 출력
-    print_result(result)
+    # ── 단일 백테스트 (필요시 사용) ──
+    # df = prepare_indicators(df_raw)
+    # result = run_backtest(df, initial_capital=3_000_000.0)
+    # print_result(result)

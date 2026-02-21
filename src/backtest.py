@@ -7,63 +7,69 @@ import pandas as pd
 import numpy as np
 import ccxt
 import config
+import requests
+import time
 
 # ============================================================
 # 1. 과거 데이터 수집
 # ============================================================
 
-def fetch_ohlcv_full(ticker: str, timeframe: str, limit_per_request: int = 200) -> pd.DataFrame:
-    upbit = ccxt.upbit()
+def fetch_ohlcv_full(ticker: str, timeframe: str = "60") -> pd.DataFrame:
+    """
+    업비트 REST API 직접 호출로 전체 과거 데이터 수집
+    - ticker  : "KRW-XRP" 형식 (업비트 native)
+    - timeframe: 분 단위 문자열 ("60" = 1시간봉, "240" = 4시간봉)
+    - 상장일까지 전체 수집 가능
+    """
+    url = f"https://api.upbit.com/v1/candles/minutes/{timeframe}"
     all_ohlcv = []
+    to = None  # None이면 현재 시각 기준 최근 200개
 
-    print(f"📥 데이터 수집 중... ({ticker} {timeframe})")
+    print(f"📥 데이터 수집 중... ({ticker} {timeframe}분봉)")
 
-    # 1. 가장 최근 200개 먼저 수집
-    ohlcv = upbit.fetch_ohlcv(ticker, timeframe=timeframe, limit=limit_per_request)
-    if not ohlcv:
-        return pd.DataFrame()
-
-    all_ohlcv = ohlcv
-    oldest_ts = ohlcv[0][0]  # 현재 수집된 가장 오래된 타임스탬프
-
-    print(f"  수집됨: {len(all_ohlcv)}개 | 최초 캔들: {pd.to_datetime(oldest_ts, unit='ms')}")
-
-    # 2. 과거로 계속 거슬러 올라가기
     while True:
-        # oldest_ts 이전 데이터 요청
-        since = oldest_ts - (limit_per_request * _timeframe_to_ms(timeframe))
+        params = {"market": ticker, "count": 200}
+        if to:
+            params["to"] = to
 
-        ohlcv = upbit.fetch_ohlcv(
-            ticker,
-            timeframe=timeframe,
-            limit=limit_per_request,
-            since=since,
-        )
+        resp = requests.get(url, params=params)
+        data = resp.json()
 
-        if not ohlcv or len(ohlcv) == 0:
+        if not data or len(data) == 0:
             break
 
-        # 중복 제거: all_ohlcv 중 oldest_ts 보다 오래된 것만 앞에 추가
-        new_ohlcv = [c for c in ohlcv if c[0] < oldest_ts]
-        if not new_ohlcv:
-            break
+        all_ohlcv = data + all_ohlcv  # 오래된 데이터를 앞에 붙임
 
-        all_ohlcv = new_ohlcv + all_ohlcv
-        oldest_ts = all_ohlcv[0][0]
+        # 가장 오래된 캔들의 시각을 다음 to로 설정
+        oldest = data[-1]["candle_date_time_utc"]
+        print(f"\r  수집: {len(all_ohlcv)}개 | 최초 캔들: {oldest}", end="")
 
-        print(f"  수집됨: {len(all_ohlcv)}개 | 최초 캔들: {pd.to_datetime(oldest_ts, unit='ms')}")
+        if len(data) < 200:
+            break  # 더 이상 데이터 없음
 
-        if len(new_ohlcv) < limit_per_request:
-            break
+        to = oldest  # 다음 루프: oldest 이전 데이터 요청
+        time.sleep(0.11)  # API 제한: 초당 10회 → 0.1초 간격
 
-    df = pd.DataFrame(all_ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    print(f"\n✅ 총 {len(all_ohlcv)}개 수집 완료")
+
+    # DataFrame 변환
+    rows = []
+    for d in all_ohlcv:
+        rows.append([
+            d["timestamp"],
+            d["opening_price"],
+            d["high_price"],
+            d["low_price"],
+            d["trade_price"],
+            d["candle_acc_trade_volume"],
+        ])
+
+    df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
     df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
     df = df.drop_duplicates(subset="timestamp").sort_values("timestamp").reset_index(drop=True)
 
-    print(f"✅ 총 {len(df)}개 캔들 수집 완료")
     print(f"   기간: {df['datetime'].iloc[0]} ~ {df['datetime'].iloc[-1]}")
     return df
-
 
 def _timeframe_to_ms(timeframe: str) -> int:
     """타임프레임 문자열을 밀리초로 변환"""
@@ -503,8 +509,8 @@ def run_grid_search(df_raw: pd.DataFrame, initial_capital: float = 3_000_000.0):
 if __name__ == "__main__":
     # 1. 데이터 수집 (그리드 서치 전 한 번만 수집)
     df_raw = fetch_ohlcv_full(
-        ticker    = config.TICKER,
-        timeframe = "1h",
+        ticker=config.TICKER_UPBIT,
+        timeframe=config.TIMEFRAME,
     )
 
     # 2. 그리드 서치 실행

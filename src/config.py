@@ -11,9 +11,9 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # 2. 전략 설정
-#TICKER = "KRW-XRP"        # 거래 대상
-TICKER = "XRP/KRW"
-TIMEFRAME = "1h"          # 캔들 (1시간봉)
+TICKER         = "XRP/KRW"    # 실거래용 (ccxt)
+TICKER_UPBIT   = "KRW-XRP"    # 데이터 수집용 (업비트 native)
+TIMEFRAME      = "60"
 
 
 # ✅ [추가] 시장 필터(폭락장/레짐 필터) 설정

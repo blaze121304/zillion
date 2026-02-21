@@ -54,3 +54,6 @@ config_local.py
 # OS별 잡파일
 .DS_Store
 Thumbs.db
+
+# 백테스트용 데이터 (용량 크므로 git 제외)
+data/

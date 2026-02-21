@@ -44,11 +44,12 @@ VOLUME_FILTER_MULTIPLIER = 1.5
 REENTRY_COOLDOWN_SEC     = 300
 
 # ✅ 터틀 전략 설정
-TURTLE_ENTRY_PERIOD  = 20   # 진입 기준 고점 기간 (20봉)
-TURTLE_EXIT_PERIOD   = 10   # 청산 기준 저점 기간 (10봉)
-TURTLE_ATR_PERIOD    = 20   # ATR 계산 기간
-TURTLE_RISK_RATE     = 1.0  # 총자산 대비 허용 손실 (1%)
-TURTLE_MAX_UNITS     = 4    # 최대 피라미딩 유닛 수
+TURTLE_ENTRY_PERIOD  = 20       # 진입 기준 고점 기간 (20봉)
+TURTLE_ATR_PERIOD    = 14       # ATR 계산 기간
+TURTLE_RISK_RATE     = 1.5      # 총자산 대비 허용 손실 (1%)
+TURTLE_MAX_UNITS     = 4        # 최대 피라미딩 유닛 수
+REENTRY_COOLDOWN_SEC = 86400    # 쿨다운 시간(SEC) - 1시간봉 기준 1봉 대기 (최소 24시간 (1일) 정도는 쉬어야 연속 손절 막을수 있음)
+
 
 # ✅ 폭락장 필터
 USE_MARKET_FILTER            = False
@@ -62,5 +63,27 @@ MARKET_FILTER_CHECK_INTERVAL = 60
 ENTRY_START_HOUR = 0
 ENTRY_END_HOUR   = 23
 
-# ✅ 쿨다운 시간 - 1시간봉 기준 1봉 대기
-REENTRY_COOLDOWN_SEC = 86400 # 최소 24시간 (1일) 정도는 쉬어야 연속 손절 막을수 있음
+# ✅ ATR 급등 필터 (대폭락 감지)
+USE_ATR_FILTER         = True   # 필터 사용 여부
+ATR_SPIKE_PERIOD       = 20     # 평균 ATR 계산 기간 (20봉)
+ATR_SPIKE_MULTIPLIER   = 2.5    # 현재 ATR이 평균의 2.5배 이상이면 급등으로 판단
+
+# ✅ 손실 한도 설정
+MAX_DRAWDOWN_LIMIT = -25.0   # 계좌 -25% 도달 시 봇 중단
+
+# ✅ 백테스트 실행 옵션
+BACKTEST_LOAD_DATA    = True   # 데이터 로드 (항상 True)
+BACKTEST_GRID_SEARCH  = False  # 그리드 서치 실행 (CSV 없을 때만 의미 있음)
+BACKTEST_SINGLE_RUN   = True   # 단일 백테스트 실행
+
+# ✅ 백테스트 초기 자본
+BACKTEST_INITIAL_CAPITAL = 3_000_000.0  # 백테스트 초기 자본
+
+# ✅ 백테스트 옵션
+BACKTEST_PRINT_ALL_TRADES  = False  # True: 매수/매도 전체 출력 (디버그용)
+BACKTEST_PRINT_SELL_ONLY   = False   # True: 매도(청산)만 출력
+BACKTEST_PRINT_MONTHLY      = True   # 월별/연도별 수익률 출력
+BACKTEST_PRINT_CRASH        = False   # 폭락 구간 방어 분석 출력
+
+# ✅ 청산 모드
+TURTLE_EXIT_MODE = "TRAILING"   # "TRAILING" / "10DAY_LOW" / "20DAY_LOW"

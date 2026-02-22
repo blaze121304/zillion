@@ -22,7 +22,7 @@ async def start(update: Update, _context: CallbackContext):
 
 #region 소개
 async def chat(update: Update, _context: CallbackContext):
-    await update.message.reply_text("🤖 코인 자동 매매 봇 💰💰💰")
+    await update.message.reply_text("🤖 노후대비!! 코인 자동 매매 봇 💰💰💰 made by rusty")
 #endregion
 
 #region 현재가 정보

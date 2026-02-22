@@ -11,18 +11,26 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # 2. 전략 설정
-TICKER         = "BTC/KRW"    # 실거래용 (ccxt)
+# TICKER         = "BTC/KRW"    # 실거래용 (ccxt)
+TICKER         = "XRP/KRW"    # 실거래용 (ccxt)
 TICKER_UPBIT   = "KRW-BTC"    # 데이터 수집용 (업비트 native)
 TIMEFRAME      = "1h"
 
 # ✅ 전략 선택
 STRATEGY_MODE = "TURTLE_V1"
 
-# ✅ 터틀 전략 설정
-TURTLE_ENTRY_PERIOD  = 30       # 진입 기준 고점 기간 (20봉)
-TURTLE_ATR_PERIOD    = 14       # ATR 계산 기간
-TURTLE_RISK_RATE     = 2.0      # 총자산 대비 허용 손실 (1%)
-TURTLE_MAX_UNITS     = 4        # 최대 피라미딩 유닛 수
+# ✅ 터틀 전략 설정 (BTC)
+# TURTLE_ENTRY_PERIOD  = 30       # 진입 기준 고점 기간 (20봉)
+# TURTLE_ATR_PERIOD    = 14       # ATR 계산 기간
+# TURTLE_RISK_RATE     = 2.0      # 총자산 대비 허용 손실 (1%)
+# TURTLE_MAX_UNITS     = 4        # 최대 피라미딩 유닛 수
+# REENTRY_COOLDOWN_SEC = 43200    # 쿨다운 시간(SEC) - 1시간봉 기준 1봉 대기 (최소 24시간 (1일) 정도는 쉬어야 연속 손절 막을수 있음)
+
+# ✅ 터틀 전략 설정 (XRP)
+TURTLE_ENTRY_PERIOD  = 20   # 진입 기준 고점 기간 (20봉)
+TURTLE_ATR_PERIOD    = 20   # ATR 계산 기간
+TURTLE_RISK_RATE     = 1.0  # 총자산 대비 허용 손실 (1%)
+TURTLE_MAX_UNITS     = 4    # 최대 피라미딩 유닛 수
 REENTRY_COOLDOWN_SEC = 43200    # 쿨다운 시간(SEC) - 1시간봉 기준 1봉 대기 (최소 24시간 (1일) 정도는 쉬어야 연속 손절 막을수 있음)
 
 # ✅ 청산 모드

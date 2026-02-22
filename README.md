@@ -13,7 +13,8 @@ zillion/
 │    └── main.py              # [실행] 이 모든 것을 조립하고 실행하는 파일
 ├── test
 │    ├── __init__.py         # ✅ 추가 (선택이지만 해두면 깔끔)
-│    └── test_strategy.py    # ✅ 테스트 코드
+│    ├── backtest.py         # ✅ 백테스트 코드
+│    └── strategytest.py     # ✅ 단일, 시나리오 통합 테스트 코드
 ├── .env                     #  API 키 및 설정값
 ├── .README.md               # README
 └── .trading.db              # DB(임시)

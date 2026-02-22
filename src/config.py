@@ -14,7 +14,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 # TICKER         = "BTC/KRW"    # 실거래용 (ccxt)
 TICKER         = "XRP/KRW"    # 실거래용 (ccxt)
 TICKER_UPBIT   = "KRW-BTC"    # 데이터 수집용 (업비트 native)
-TIMEFRAME      = "1h"
+TIMEFRAME      = "1m"       #1h
 
 # ✅ 전략 선택
 STRATEGY_MODE = "TURTLE_V1"

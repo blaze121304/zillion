@@ -58,3 +58,7 @@ python -m test.strategytest
 
 # backtest 실행시
 python -m test.backtest
+
+# 메인 실행시
+cd E:\intellij\zillion\src
+python main.py

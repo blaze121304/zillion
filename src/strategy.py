@@ -4,6 +4,20 @@ import config
 import upbit_client as client
 import database as db
 import requests
+import logging
+import os
+
+# ── 파일 로거 설정 ──
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'logs')
+os.makedirs(LOG_DIR, exist_ok=True)
+
+trade_logger = logging.getLogger("trade")
+trade_logger.setLevel(logging.DEBUG)
+_fh = logging.FileHandler(
+    os.path.join(LOG_DIR, "trade.log"), encoding="utf-8"
+)
+_fh.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+trade_logger.addHandler(_fh)
 
 # 재진입 쿨다운용 타임스탬프
 last_entry_ts: float = 0.0
@@ -86,10 +100,6 @@ def run_strategy(bot_app):
     initial_equity = init_krw + init_amt * init_price
     print(f"💰 초기 자산: {initial_equity:,.0f}원")
 
-    # 시장 필터 상태 초기화
-    market_off = False          # True면 '폭락장 → 신규 진입 OFF'
-    last_market_check = 0.0     # 마지막으로 BTC 상태를 체크한 시각 (epoch sec)
-
     while True:
         try:
             # ✅ 계좌 손실 한도 체크 - 루프 제일 앞
@@ -138,54 +148,15 @@ def run_strategy(bot_app):
                 end=""
             )
 
-            # 4. 시장 필터
-            if config.USE_MARKET_FILTER:
-                market_off, last_market_check = market_filter(
-                    bot_app, last_market_check, market_off
-                )
-            else:
-                market_off = False
-
             # 5. 재진입 쿨다운 / 거래 시간대 체크
             global last_entry_ts
             in_cooldown = (time.time() - last_entry_ts) < config.REENTRY_COOLDOWN_SEC
             in_trade_hours = config.ENTRY_START_HOUR <= time.localtime().tm_hour <= config.ENTRY_END_HOUR
 
             # 6. 매수 로직
-            # ATR 급등 감지 필터
             df_1h = client.get_ohlcv(config.TICKER, "1h")
-            atr_spike = is_atr_spike(df_1h)
-
-            # 기존 매수 로직
-            if atr_spike:
-                # 기존 포지션 즉시 청산
-                if my_amt > 0:
-                    print(f"\n🚨 [ATR 급등 감지] 기존 포지션 즉시 청산")
-                    client.sell_market(config.TICKER, my_amt)
-                    realized_pnl = (curr_price - my_avg) * my_amt
-                    profit_rate = (curr_price - my_avg) / my_avg * 100
-
-                    db.log_trade(
-                        config.TICKER, "sell", curr_price, my_amt,
-                        profit_rate, realized_pnl, config.STRATEGY_MODE
-                    )
-                    send_msg(
-                        bot_app,
-                        f"🚨 [ATR 급등 감지 - 강제 청산]\n"
-                        f"현재 ATR이 평균의 {config.ATR_SPIKE_MULTIPLIER}배 이상\n"
-                        f"수익률: {profit_rate:.2f}%\n"
-                        f"실현손익: {int(realized_pnl):,}원"
-                    )
-                    # 피라미딩 상태 초기화
-                    turtle_units = 0
-                    turtle_next_add = 0.0
-                    turtle_entry_atr = 0.0
-                    entry_highest_price = 0.0
-                    time.sleep(10)
-
-            elif (not market_off) and (not in_cooldown) and in_trade_hours:
+            if (not in_cooldown) and in_trade_hours:
                 purchase_buy(bot_app, curr_price, my_krw, my_amt, df_1h)
-
 
             # 7. 손절 / 익절 로직
             loss_cut_take_profit(bot_app, curr_price, my_amt, my_avg)
@@ -195,56 +166,6 @@ def run_strategy(bot_app):
         except Exception as e:
             print(f"\n⚠️ 에러 발생: {e}")
             time.sleep(3)
-
-
-def market_filter(
-    bot_app,
-    last_market_check: float,
-    market_off: bool,
-) -> tuple[bool, float]:
-    """
-    시장 필터: BTC 1h/24h 수익률 기반으로 폭락장 여부 판단.
-    반환값:
-        (new_market_off, new_last_market_check)
-    """
-    now_ts = time.time()
-    # 아직 체크 주기가 안 됐으면 상태 변경 없음
-    if now_ts - last_market_check < config.MARKET_FILTER_CHECK_INTERVAL:
-        return market_off, last_market_check
-
-    last_market_check = now_ts
-
-    btc_ret_1h, btc_ret_24h = client.get_btc_1h_24h_returns(config.MARKET_FILTER_TICKER)
-
-    new_market_off = (
-        btc_ret_1h <= config.MARKET_1H_DROP_LIMIT
-        or btc_ret_24h <= config.MARKET_24H_DROP_LIMIT
-    )
-
-    if new_market_off and not market_off:
-        print(
-            f"\n⛔ [시장 필터 발동] {config.MARKET_FILTER_TICKER} "
-            f"1h: {btc_ret_1h:.2f}%, 24h: {btc_ret_24h:.2f}%"
-        )
-        send_msg(
-            bot_app,
-            f"⛔ [시장 필터 발동]\n"
-            f"{config.MARKET_FILTER_TICKER} 1h: {btc_ret_1h:.2f}% / 24h: {btc_ret_24h:.2f}%\n"
-            f"신규 진입을 중단합니다.",
-        )
-    elif not new_market_off and market_off:
-        print(
-            f"\n✅ [시장 필터 해제] {config.MARKET_FILTER_TICKER} "
-            f"1h: {btc_ret_1h:.2f}%, 24h: {btc_ret_24h:.2f}%"
-        )
-        send_msg(
-            bot_app,
-            f"✅ [시장 필터 해제]\n"
-            f"{config.MARKET_FILTER_TICKER} 1h: {btc_ret_1h:.2f}% / 24h: {btc_ret_24h:.2f}%\n"
-            f"신규 진입을 재개합니다.",
-        )
-
-    return new_market_off, last_market_check
 
 
 def purchase_buy(bot_app, curr_price: float, my_krw: float, my_amt: float = 0.0, df_1h: pd.DataFrame | None = None,):
@@ -327,6 +248,14 @@ def purchase_buy(bot_app, curr_price: float, my_krw: float, my_amt: float = 0.0,
                 f"다음 추가진입: {turtle_next_add:,.0f}원",
             )
 
+            # 신규 진입 로그
+            trade_logger.info(
+                f"[BUY][1유닛진입] 가격={curr_price:,.0f} | ATR={atr:.2f} | "
+                f"매수금액={unit_krw:,.0f} | 수량={amount:.4f} | "
+                f"손절가={curr_price - 2 * atr:,.0f} | 다음추가={turtle_next_add:,.0f} | "
+                f"잔고(KRW)={my_krw:,.0f} | 총자산={total_equity:,.0f}"
+            )
+
         # ── 피라미딩 추가 진입 (유닛 1~3인 상태) ──
         elif 0 < turtle_units < config.TURTLE_MAX_UNITS:
             # 다음 추가 기준가 돌파 시 추가 진입
@@ -372,41 +301,18 @@ def purchase_buy(bot_app, curr_price: float, my_krw: float, my_amt: float = 0.0,
                 f"다음 추가진입: {turtle_next_add:,.0f}원\n"
                 f"현재 손절가: {stop_price:,.0f}원",
             )
+
+            # 피라미딩 추가 진입 로그
+            trade_logger.info(
+                f"[BUY][{turtle_units + 1}유닛추가] 가격={curr_price:,.0f} | "
+                f"매수금액={unit_krw:,.0f} | 수량={amount:.4f} | "
+                f"손절가={entry_highest_price - 2 * turtle_entry_atr:,.0f} | "
+                f"다음추가={curr_price + 0.5 * turtle_entry_atr:,.0f} | "
+                f"잔고(KRW)={my_krw:,.0f} | 총자산={total_equity:,.0f}"
+            )
     else:
         print(f"\n⚠️ 알 수 없는 STRATEGY_MODE: {config.STRATEGY_MODE}")
         return
-
-def is_atr_spike(df: pd.DataFrame) -> bool:
-    """
-    ATR 급등 감지
-    - 현재 ATR이 최근 ATR_SPIKE_PERIOD 평균의 ATR_SPIKE_MULTIPLIER배 이상이면 True
-    """
-    if not config.USE_ATR_FILTER:
-        return False
-
-    df = df.copy()
-    df['atr'] = calculate_atr(df, config.TURTLE_ATR_PERIOD)
-
-    # 데이터 부족 시 패스
-    if len(df) < config.ATR_SPIKE_PERIOD + 1:
-        return False
-
-    current_atr = df['atr'].iloc[-1]
-    avg_atr     = df['atr'].iloc[-(config.ATR_SPIKE_PERIOD + 1):-1].mean()
-
-    if avg_atr <= 0:
-        return False
-
-    ratio = current_atr / avg_atr
-
-    print(
-        f"\r[ATR 필터] 현재 ATR: {current_atr:.2f} | "
-        f"평균 ATR: {avg_atr:.2f} | "
-        f"비율: {ratio:.2f}x (기준: {config.ATR_SPIKE_MULTIPLIER}x)",
-        end=""
-    )
-
-    return ratio >= config.ATR_SPIKE_MULTIPLIER
 
 def _turtle_exit(bot_app, curr_price, my_amt, my_avg):
     """
@@ -434,7 +340,7 @@ def _turtle_exit(bot_app, curr_price, my_amt, my_avg):
     # 트레일링 손절가 = 최고가 - 2 * ATR
     # → 최고가가 올라갈수록 손절가도 따라 올라감
     # → 손절가는 절대 내려가지 않음
-    trailing_stop = entry_highest_price - 2 * atr
+    trailing_stop = entry_highest_price - config.TURTLE_TRAILING_MULTIPLIER * atr
 
     # 진입가 기준 수익률 / 손익 계산
     profit_rate  = (curr_price - my_avg) / my_avg * 100
@@ -479,6 +385,14 @@ def _turtle_exit(bot_app, curr_price, my_amt, my_avg):
         f"실현손익: {int(realized_pnl):,}원"
     )
 
+    trade_logger.info(
+        f"[SELL][{'익절' if profit_rate >= 0 else '손절'}] "
+        f"현재가={curr_price:,.0f} | 최고가={entry_highest_price:,.0f} | "
+        f"손절가={trailing_stop:,.0f} | 평균진입가={my_avg:,.0f} | "
+        f"수량={my_amt:.4f} | 수익률={profit_rate:+.2f}% | "
+        f"실현손익={realized_pnl:+,.0f}"
+    )
+
     # ✅ 전역 변수 초기화 (global 선언 포함)
     entry_highest_price = 0.0
     turtle_units = 0
@@ -490,75 +404,6 @@ def _turtle_exit(bot_app, curr_price, my_amt, my_avg):
 def loss_cut_take_profit(bot_app, curr_price, my_amt, my_avg):
     if my_amt <= 0 or my_avg <= 0:
         return
-
-    current_mode = config.STRATEGY_MODE.upper()
-
     # ✅ 터틀 전략은 별도 청산 로직 사용
-    if current_mode == "TURTLE_V1":
-        _turtle_exit(bot_app, curr_price, my_amt, my_avg)
-        return
+    _turtle_exit(bot_app, curr_price, my_amt, my_avg)
 
-    # 3. 익절 로직
-    # 보유량이 있을 때만 (my_amt > 0) 손익률 계산
-    # profit_rate <= STOP_LOSS_RATE
-    # → 손절 실행 (⚠️ 손절 신호 → 시장가 매도)
-    # profit_rate >= TARGET_PROFIT_RATE
-    # → 익절 실행 (🎉 익절 신호 → 시장가 매도)
-    # 손절과 익절은 if ... elif ... 구조라 둘 중 하나만 실행됨
-
-    profit_rate = ((curr_price - my_avg) / my_avg) * 100
-    current_mode = config.STRATEGY_MODE
-
-    # 손절
-    if profit_rate <= config.STOP_LOSS_RATE:
-        print(f"\n⚠️ [손절 신호] 수익률 {profit_rate:.2f}% (기준: {config.STOP_LOSS_RATE}%)")
-
-        client.sell_market(config.TICKER, my_amt)
-        realized_pnl = (curr_price - my_avg) * my_amt
-
-        db.log_trade(
-            ticker=config.TICKER,
-            action="sell",
-            price=curr_price,
-            amount=my_amt,
-            profit_rate=profit_rate,
-            pnl=realized_pnl,
-            mode=current_mode,
-        )
-
-        msg = (
-            f"⚠️ [손절 실행]\n"
-            f"수익률: {profit_rate:.2f}%\n"
-            f"실현손익: {int(realized_pnl):,}원"
-        )
-        send_msg(bot_app, msg)
-
-        time.sleep(10)
-        return
-
-    # 익절
-    if profit_rate >= config.TARGET_PROFIT_RATE:
-        print(f"\n💰 [익절 신호] 수익률 {profit_rate:.2f}% (기준: {config.TARGET_PROFIT_RATE}%)")
-
-        client.sell_market(config.TICKER, my_amt)
-        realized_pnl = (curr_price - my_avg) * my_amt
-
-        db.log_trade(
-            ticker=config.TICKER,
-            action="sell",
-            price=curr_price,
-            amount=my_amt,
-            profit_rate=profit_rate,
-            pnl=realized_pnl,
-            mode=current_mode,
-        )
-
-        msg = (
-            f"🎉 [익절 완료]\n"
-            f"수익률: +{profit_rate:.2f}%\n"
-            f"실현손익: {int(realized_pnl):,}원"
-        )
-        send_msg(bot_app, msg)
-
-        time.sleep(10)
-        return

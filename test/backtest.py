@@ -139,9 +139,10 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
     - 트레일링 스탑 방식 청산
     - 피라미딩 최대 4유닛
     """
+    peak_equity = initial_capital  # 고점 자산 추적
+    last_drawdown_alert_date = None  # 마지막 알림 날짜 (중복 방지)
     capital       = initial_capital
     position      = 0.0
-    entry_price   = 0.0
     highest_price = 0.0    # 진입 후 최고가 (트레일링 스탑 기준)
     units         = 0      # 현재 보유 유닛 수
     next_add      = 0.0    # 다음 피라미딩 추가 기준가
@@ -153,6 +154,11 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
 
     FEE_RATE = 0.0005      # 업비트 수수료 0.05%
 
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 봉(캔들) 순회 — 시간 순으로 한 봉씩 읽으며 아래 작업 수행
+    #   [A] 포지션 없음 → 진입 조건 충족 시 매수
+    #   [B] 포지션 있음 → 청산 조건 충족 시 매도, 아니면 피라미딩 추가 매수
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     for i, row in df.iterrows():
         curr_price = float(row['close'])
         atr        = float(row['atr'])
@@ -163,7 +169,25 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
         total_equity = capital + position * curr_price
         equity_curve.append({"datetime": dt, "equity": total_equity})
 
-        # ── 포지션 없을 때: 신규 진입 체크 ──
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # [!] 계좌 손실한도 -25% 체크
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 원전(고점 자본 대비 -25%)
+
+        # 고점 갱신
+        if total_equity > peak_equity:
+            peak_equity = total_equity
+
+        drawdown = (total_equity - peak_equity) / peak_equity * 100
+        if drawdown <= config.MAX_DRAWDOWN_LIMIT:
+            alert_date = dt.date() if hasattr(dt, 'date') else str(dt)[:10]
+            if alert_date != last_drawdown_alert_date:
+                last_drawdown_alert_date = alert_date
+                print(f"\n⚠️ [백테스트] 고점 대비 낙폭 {drawdown:.2f}% 도달 ({dt}) - 참고용")
+
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # [A] 포지션 없음 → 신규 진입 체크
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         if position == 0:
             # 직전 봉 종가 (첫 봉이면 0)
             prev_close = float(df['close'].iloc[i - 1]) if i > 0 else 0.0
@@ -175,16 +199,9 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
                 if elapsed < config.REENTRY_COOLDOWN_SEC:
                     continue
 
-            # ATR 급등 시 진입 차단
-            avg_atr = df['atr'].iloc[max(0, i - config.ATR_SPIKE_PERIOD):i].mean()
-            atr_spike = (avg_atr > 0) and (atr / avg_atr >= config.ATR_SPIKE_MULTIPLIER)
-
-            if atr_spike:
-                continue  # 진입 차단
-
-            # 진입 조건:
-            #   1) 이번 봉에서 처음으로 20봉 고점 돌파 (직전 봉은 고점 아래)
-            #   2) ATR 유효값일 때만 진입
+            # 터틀 진입 조건:
+            #   - 이번 봉에서 N봉 고점을 처음 돌파 (직전 봉은 고점 아래)
+            #   - ATR 유효값일 때만 진입 (0이면 유닛 사이즈 계산 불가)
             if curr_price > entry_high and prev_close <= entry_high and atr > 0:
                 # 유닛 계산: 허용손실(총자산 1%) / 손절폭(2*ATR) * 현재가
                 risk_krw     = total_equity * (config.TURTLE_RISK_RATE / 100)
@@ -208,8 +225,8 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
                 capital -= unit_krw
 
                 # 피라미딩 상태 초기화
-                entry_price   = curr_price
-                entry_cost = unit_krw - fee  # ← [수정] 1유닛 원가 초기화
+                # entry_cost = unit_krw - fee  # ← [수정] 1유닛 원가 초기화
+                entry_cost = unit_krw  # ← [수정] 1유닛 원가 초기화
                 highest_price = curr_price
                 entry_atr     = atr                     # 최초 ATR 고정
                 next_add      = curr_price + 0.5 * atr  # 다음 추가 기준가
@@ -225,43 +242,34 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
                     "atr"      : atr,
                 })
 
-        # ── 포지션 있을 때: 피라미딩 + 트레일링 스탑 체크 ──
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # [B] 포지션 있음 → 피라미딩 + 청산 체크
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         else:
-                # 1. 최고가 갱신
+                # 1. 최고가 갱신 (트레일링 스탑 기준선 끌어올리기)
                 if curr_price > highest_price:
                     highest_price = curr_price
 
-                # 2. entry_atr 방어 코드
+                # 2. entry_atr 방어 (0이면 손절가 계산 불가 → 스킵)
                 if entry_atr <= 0:
                     continue
 
                 # 3. trailing_stop 계산
-                trailing_stop = highest_price - 2 * entry_atr
+                # 트레일링 손절가 = 최고가 - 2 × 최초ATR
+                # → 최고가가 올라갈수록 손절가도 따라 올라감 (수익 보호)
+                trailing_stop = highest_price - config.TURTLE_TRAILING_MULTIPLIER * entry_atr
 
-                # 4. ATR 급등 체크
-                avg_atr = df['atr'].iloc[max(0, i - config.ATR_SPIKE_PERIOD):i].mean()
-                atr_spike = (avg_atr > 0) and (atr / avg_atr >= config.ATR_SPIKE_MULTIPLIER)
-
-                # 5. 청산 조건 체크
-                # if atr_spike:
-                #     exit_reason = "atr_spike"
-                # elif curr_price <= trailing_stop:
-                #     exit_reason = "trailing_stop"
-                # else:
-                #     exit_reason = None
-
-                # 5. 청산 조건 체크
+                # 5. 청산 조건 판단 (exit_mode에 따라 기준 다름)
                 exit_mode = config.TURTLE_EXIT_MODE.upper()
 
-                if atr_spike:
-                    exit_reason = "atr_spike"
-
-                elif exit_mode == "TRAILING":
+                # 트레일링 스탑: 최고가 - 2ATR 아래로 내려오면 청산
+                if exit_mode == "TRAILING":
                     if curr_price <= trailing_stop:
                         exit_reason = "trailing_stop"
                     else:
                         exit_reason = None
 
+                # 원전 터틀 S1: 10일 저점 하향 돌파 시 청산
                 elif exit_mode == "10DAY_LOW":
                     exit_low = float(row.get('exit_low_10', 0) or 0)
                     if exit_low > 0 and curr_price <= exit_low:
@@ -269,6 +277,7 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
                     else:
                         exit_reason = None
 
+                # 원전 터틀 S2: 20일 저점 하향 돌파 시 청산
                 elif exit_mode == "20DAY_LOW":
                     exit_low = float(row.get('exit_low_20', 0) or 0)
                     if exit_low > 0 and curr_price <= exit_low:
@@ -288,14 +297,14 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
                     sell_amount = position * curr_price
                     fee = sell_amount * FEE_RATE
 
-                    # ✅ [수정] 가중평균 진입가 기반 pnl 계산
+                    # ✅ 가중평균 진입가 기반 손익 계산
                     weighted_avg = entry_cost / position
                     pnl = sell_amount - fee - entry_cost
                     profit_rate = (curr_price - weighted_avg) / weighted_avg * 100
 
                     capital += sell_amount - fee
 
-                    # ✅ [수정] entry_cost 리셋 추가
+                    # ✅ 포지션 및 피라미딩 상태 전체 초기화
                     position = 0.0
                     highest_price = 0.0
                     units = 0
@@ -314,7 +323,8 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
                     })
                     continue  # ← 청산 후 피라미딩 스킵
 
-                # 7. 피라미딩 추가 진입 체크 (청산 없을 때만 실행)
+                # ── 피라미딩 추가 진입 (청산 없을 때만) ──
+                # 현재가가 다음 추가 기준가 이상이고 최대 유닛 미달 시 추가 매수
                 if units < config.TURTLE_MAX_UNITS and curr_price >= next_add:
                     risk_krw = total_equity * (config.TURTLE_RISK_RATE / 100)
                     unit_krw = risk_krw / (2 * entry_atr) * curr_price
@@ -329,7 +339,8 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
                         add_amt = (unit_krw - fee) / curr_price
                         position += add_amt
                         capital -= unit_krw
-                        entry_cost += unit_krw - fee  # 수수료 제외 실투입금 누적
+                        # entry_cost += unit_krw - fee  # 수수료 제외 실투입금 누적
+                        entry_cost += unit_krw  # 수수료 제외 실투입금 누적
                         units += 1
                         next_add = curr_price + 0.5 * entry_atr
 
@@ -342,8 +353,14 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
                             "units": units,
                         })
 
-
-    # 마지막 포지션 강제 청산
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 백테스트 종료 시점 미청산 포지션 강제 청산
+    #
+    # 반복문이 끝날 때까지 트레일링 스탑 / ATR 스파이크 조건이
+    # 한 번도 충족되지 않으면 포지션이 열린 채로 남는다.
+    # 이 경우 마지막 봉의 종가로 강제 청산해서
+    # 최종 자산(final_equity)과 total_pnl에 정확히 반영한다.
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if position > 0:
         curr_price  = float(df['close'].iloc[-1])
         sell_amount = position * curr_price
@@ -406,6 +423,15 @@ def run_backtest(df: pd.DataFrame, initial_capital: float = config.BACKTEST_INIT
         "mdd"             : mdd,
         "total_pnl"       : total_pnl,
     }
+
+    #임시
+    equity_df = pd.DataFrame(equity_curve)
+    peak = equity_df['equity'].cummax()
+    dd = (equity_df['equity'] - peak) / peak * 100
+    worst = dd.min()
+    worst_dt = equity_df.loc[dd.idxmin(), 'datetime']
+    print(f"최저 낙폭: {worst:.2f}% ({worst_dt})")
+    print(f"-25% 이하 구간 수: {(dd <= -25).sum()}봉")
 
     return {
         "trades"       : trades,

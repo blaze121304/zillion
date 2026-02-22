@@ -111,6 +111,9 @@ async def stats(update: Update, _context: CallbackContext):
 
 #region 메인 실행부
 if __name__ == "__main__":
+    import asyncio
+    asyncio.set_event_loop(asyncio.new_event_loop())  # ← 추가
+
     # 1. DB 초기화
     db.init_db()
     print("✅ 데이터베이스 연결 완료")

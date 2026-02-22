@@ -66,9 +66,6 @@ config.TURTLE_ATR_PERIOD    = 14
 config.TURTLE_RISK_RATE     = 1.0
 config.TURTLE_MAX_UNITS     = 4
 config.REENTRY_COOLDOWN_SEC = 86400
-config.USE_ATR_FILTER       = True
-config.ATR_SPIKE_PERIOD     = 20
-config.ATR_SPIKE_MULTIPLIER = 2.5
 config.TELEGRAM_BOT_TOKEN   = None
 config.TELEGRAM_CHAT_ID     = None
 
@@ -153,7 +150,7 @@ def test_1_no_entry_without_breakout():
 def test_2_entry_on_breakout():
     print_header("[TEST 02] 20봉 고점 돌파 시 1유닛 진입")
     reset_turtle_state()
-    prices = [1000.0] * 20 + [999.0, 1050.0]
+    prices = [1000.0] * 23 + [999.0, 1050.0]
     df = make_df(prices)
     client.get_ohlcv = lambda t, i: df
     strategy.purchase_buy(None, 1050.0, 1_000_000.0, 0.0, df)
@@ -164,7 +161,7 @@ def test_2_entry_on_breakout():
 def test_3_pyramiding():
     print_header("[TEST 03] 피라미딩 2→3→4유닛 추가 진입")
     reset_turtle_state()
-    prices = [1000.0] * 20 + [999.0, 1050.0]
+    prices = [1000.0] * 23 + [999.0, 1050.0]
     df = make_df(prices, atr_fixed=20.0)
     client.get_ohlcv = lambda t, i: df
     strategy.purchase_buy(None, 1050.0, 1_000_000.0, 0.0, df)
@@ -231,30 +228,13 @@ def test_7_no_exit_above_stop():
     check(strategy.turtle_units == 1, f"units={strategy.turtle_units} (1 유지되어야 함)")
 
 
-def test_8_atr_spike_true():
-    print_header("[TEST 08] ATR 스파이크 감지 (True)")
-    df = make_atr_spike_df(spike_multiplier=3.0)
-    result = strategy.is_atr_spike(df)
-    print(f"  → is_atr_spike={result}")
-    check(result == True, "True여야 함")
-
-
-def test_9_atr_spike_false():
-    print_header("[TEST 09] 정상 ATR → 스파이크 아님 (False)")
-    prices = [1000.0 + i for i in range(30)]
-    df = make_df(prices, atr_fixed=20.0)
-    result = strategy.is_atr_spike(df)
-    print(f"  → is_atr_spike={result}")
-    check(result == False, "False여야 함")
-
-
 def test_10_reentry_cooldown():
     print_header("[TEST 10] 재진입 쿨다운 중 진입 차단")
     reset_turtle_state()
     strategy.last_entry_ts = time.time()
     in_cooldown = (time.time() - strategy.last_entry_ts) < config.REENTRY_COOLDOWN_SEC
     check(in_cooldown == True, f"쿨다운 활성 | in_cooldown={in_cooldown}")
-    prices = [1000.0] * 20 + [999.0, 1050.0]
+    prices = [1000.0] * 23 + [999.0, 1050.0]
     df = make_df(prices)
     client.get_ohlcv = lambda t, i: df
     if not in_cooldown:
@@ -265,7 +245,7 @@ def test_10_reentry_cooldown():
 def test_11_insufficient_balance():
     print_header("[TEST 11] 잔고 부족 시 진입 차단")
     reset_turtle_state()
-    prices = [1000.0] * 20 + [999.0, 1050.0]
+    prices = [1000.0] * 23 + [999.0, 1050.0]
     df = make_df(prices)
     client.get_ohlcv = lambda t, i: df
     strategy.purchase_buy(None, 1050.0, 100.0, 0.0, df)   # 잔고 100원
@@ -299,7 +279,7 @@ def scenario_a_sideways():
 
     # ── 구간 1: 20봉 횡보 후 약한 돌파 ──
     print("\n  [구간1] 약한 돌파 → 1유닛 진입")
-    prices = [BASE] * 19 + [BASE - 1, ENTRY]
+    prices = [BASE] * 23 + [BASE - 1, ENTRY]
     df = make_df(prices, atr_fixed=ATR)
     client.get_ohlcv = lambda t, i: df
     strategy.purchase_buy(None, ENTRY, 1_000_000.0, 0.0, df)
@@ -370,7 +350,7 @@ def scenario_b_bull_run():
 
     # ── 구간 1: 강한 돌파 → 1유닛 ──
     print("\n  [구간1] 강한 돌파 → 1유닛 진입")
-    prices = [BASE] * 19 + [BASE - 1, BASE + 30]
+    prices = [BASE] * 23 + [BASE - 1, BASE + 30]
     df = make_df(prices, atr_fixed=ATR)
     client.get_ohlcv = lambda t, i: df
     entry_price = BASE + 30
@@ -458,7 +438,7 @@ def scenario_c_crash():
 
     # ── 구간 1: 진입 + 2유닛 피라미딩 ──
     print("\n  [구간1] 진입 + 2유닛 피라미딩")
-    prices = [BASE] * 19 + [BASE - 1, BASE + 30]
+    prices = [BASE] * 23 + [BASE - 1, BASE + 30]
     df = make_df(prices, atr_fixed=ATR)
     client.get_ohlcv = lambda t, i: df
 
@@ -467,41 +447,6 @@ def scenario_c_crash():
     add_price = strategy.turtle_next_add + 0.5
     strategy.purchase_buy(None, add_price, 900_000.0, 0.5, df)
     check(strategy.turtle_units == 2, f"2유닛 | units={strategy.turtle_units}")
-
-    # ── 구간 2: ATR 급등 → 강제 청산 ──
-    print("\n  [구간2] ATR 급등 → 강제 청산")
-    df_spike = make_atr_spike_df(base_price=BASE, spike_multiplier=3.0)
-    spike = strategy.is_atr_spike(df_spike)
-    print(f"  ATR 스파이크 감지: {spike}")
-    check(spike, "스파이크 감지 True여야 함")
-
-    if spike:
-        # run_strategy의 강제 청산 로직 시뮬
-        curr_price   = float(df_spike['close'].iloc[-1])
-        my_avg       = BASE + 25
-        my_amt       = 0.8
-        realized_pnl = (curr_price - my_avg) * my_amt
-        profit_rate  = (curr_price - my_avg) / my_avg * 100
-
-        client.sell_market(config.TICKER, my_amt)
-        db.log_trade(config.TICKER, "sell", curr_price, my_amt,
-                     profit_rate, realized_pnl, config.STRATEGY_MODE)
-
-        # 전역 변수 초기화 (run_strategy에서 처리하는 부분)
-        strategy.turtle_units        = 0
-        strategy.turtle_next_add     = 0.0
-        strategy.turtle_entry_atr    = 0.0
-        strategy.entry_highest_price = 0.0
-        strategy.last_entry_ts       = time.time()
-
-    check(strategy.turtle_units == 0,        f"강제 청산 | units={strategy.turtle_units}")
-    check(strategy.entry_highest_price == 0, f"최고가 초기화 | highest={strategy.entry_highest_price}")
-    check(strategy.turtle_entry_atr == 0,    f"entry_atr 초기화")
-    check(strategy.turtle_next_add == 0,     f"next_add 초기화")
-
-    sells_1 = [t for t in _trade_log if t['action'] == 'sell']
-    check(len(sells_1) == 1, f"강제 청산 1회 | sells={len(sells_1)}")
-    check(sells_1[-1]['profit_rate'] < 0, f"손실 청산 | pr={sells_1[-1]['profit_rate']:+.2f}%")
 
     # ── 구간 3: 쿨다운 중 재진입 차단 ──
     print("\n  [구간3] 쿨다운 중 재진입 차단")
@@ -514,11 +459,16 @@ def scenario_c_crash():
 
     # ── 구간 4: 쿨다운 해제 후 재진입 ──
     print("\n  [구간4] 쿨다운 해제 후 재진입")
+    # 강제 청산 후 상태 초기화 (run_strategy에서 처리되는 부분 시뮬)
+    strategy.turtle_units = 0
+    strategy.turtle_next_add = 0.0
+    strategy.turtle_entry_atr = 0.0
+    strategy.entry_highest_price = 0.0
     strategy.last_entry_ts = time.time() - config.REENTRY_COOLDOWN_SEC - 1
     in_cooldown_after = (time.time() - strategy.last_entry_ts) < config.REENTRY_COOLDOWN_SEC
     check(not in_cooldown_after, f"쿨다운 해제됨 | in_cooldown={in_cooldown_after}")
 
-    prices_re = [BASE - 50] * 19 + [BASE - 51, BASE - 10]
+    prices_re = [BASE - 50] * 23 + [BASE - 51, BASE - 10]
     df_re = make_df(prices_re, atr_fixed=ATR)
     client.get_ohlcv = lambda t, i: df_re
     strategy.purchase_buy(None, BASE - 10, 1_000_000.0, 0.0, df_re)
@@ -568,7 +518,7 @@ def scenario_d_trend():
 
     # ── 구간 1: 20봉 횡보 후 돌파 → 1유닛 ──
     print("\n  [구간1] 돌파 → 1유닛 진입")
-    prices = [BASE] * 19 + [BASE - 1, BASE + 30]
+    prices = [BASE] * 23 + [BASE - 1, BASE + 30]
     df = make_df(prices, atr_fixed=ATR)
     client.get_ohlcv = lambda t, i: df
     entry_price = BASE + 30
@@ -664,8 +614,6 @@ if __name__ == "__main__":
         test_5_trailing_stop_loss,
         test_6_trailing_stop_profit,
         test_7_no_exit_above_stop,
-        test_8_atr_spike_true,
-        test_9_atr_spike_false,
         test_10_reentry_cooldown,
         test_11_insufficient_balance,
     ]

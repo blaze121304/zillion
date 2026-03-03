@@ -891,7 +891,9 @@ if __name__ == "__main__":
     df_raw = load_ohlcv(config.TICKER_UPBIT, config.TIMEFRAME)
     if df_raw.empty:
         print("📥 저장된 데이터 없음 → API에서 수집")
-        df_raw = fetch_ohlcv_full(ticker=config.TICKER_UPBIT, timeframe=config.TIMEFRAME)
+        timeframe_map = {"1m": "1", "3m": "3", "5m": "5", "15m": "15", "1h": "60", "4h": "240"}
+        tf = timeframe_map.get(config.TIMEFRAME, "60")
+        df_raw = fetch_ohlcv_full(ticker=config.TICKER_UPBIT, timeframe=tf)
         save_ohlcv(df_raw, config.TICKER_UPBIT, config.TIMEFRAME)
 
     # 2. 그리드 서치

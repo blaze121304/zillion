@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  trading-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading-api
+    ports:
+      - "10002:8000"  # 외부 10002 -> 컨테이너 8000
+    environment:
+      - ENVIRONMENT=production
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - CORS_ORIGINS=*
+      - TZ=Asia/Seoul
+    volumes:
+      # 데이터 및 로그 보존을 위한 볼륨
+      - trading_data:/app/data
+      - trading_logs:/app/logs
+      # zillion 프로젝트를 외부에서 마운트 (선택사항)
+      - ./zillion:/app/zillion:ro
+    restart: unless-stopped
+    networks:
+      - trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  trading_data:
+    driver: local
+  trading_logs:
+    driver: local
+
+networks:
+  trading-network:
+    driver: bridge

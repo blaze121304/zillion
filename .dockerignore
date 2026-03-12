@@ -1,0 +1,46 @@
+# 프론트엔드 제외
+frontend/
+
+# Python cache
+backend/__pycache__
+backend/**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/venv
+**/env
+
+# Git
+.git
+.gitignore
+README.md
+FPRD.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Environment files
+.env
+.env.*
+
+# Scripts
+scripts/
+
+# Docker files (선택사항)
+docker-compose.yml
+portainer-stack.yml

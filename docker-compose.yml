@@ -7,11 +7,11 @@ services:
       dockerfile: Dockerfile
     container_name: trading-api
     ports:
-      - "10002:8000"  # 외부 10002 -> 컨테이너 8000
+      - "10002:10002"  # 외부 10002 -> 컨테이너 8000
     environment:
       - ENVIRONMENT=production
       - API_HOST=0.0.0.0
-      - API_PORT=8000
+      - API_PORT=10002
       - CORS_ORIGINS=*
       - TZ=Asia/Seoul
     volumes:
@@ -24,7 +24,7 @@ services:
     networks:
       - trading-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:10002/health"]
       interval: 30s
       timeout: 10s
       retries: 3

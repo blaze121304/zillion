@@ -1,11 +1,11 @@
 version: '3.8'
 
 services:
-  trading-api:
+  zillion:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: trading-api
+    container_name: zillion
     ports:
       - "10002:10002"  # 외부 10002 -> 컨테이너 8000
     environment:

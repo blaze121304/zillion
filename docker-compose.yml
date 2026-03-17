@@ -43,7 +43,7 @@ version: '3.8'
 
 services:
   zillion:
-    build: .
+    image: zillion-app:latest  # 방금 빌드한 이미지 이름
     container_name: zillion
     ports:
       - "10002:10002"
@@ -53,6 +53,4 @@ services:
     volumes:
       - /home/rusty-linux/zillion/data:/app/data
       - /home/rusty-linux/zillion/report:/app/report
-      - /home/rusty-linux/zillion/src:/app/src
     restart: always
-
